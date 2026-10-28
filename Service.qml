@@ -255,9 +255,9 @@ Item {
       "sh", fileUri(path), path.substring(0, path.lastIndexOf("/")) || "/"])
   }
 
+  // The folder Blip saves received files to (its "Save received files to" setting).
   function openDownloads() {
-    var path = received.length > 0 ? String(received[0].path) : ""
-    var dir = path !== "" ? path.substring(0, path.lastIndexOf("/")) : (Quickshell.env("HOME") + "/Downloads")
+    var dir = String(account.savePath || "") || (Quickshell.env("HOME") + "/Downloads")
     Quickshell.execDetached(["xdg-open", dir])
   }
 

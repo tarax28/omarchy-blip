@@ -19,7 +19,7 @@ An Omarchy bar plugin for [Blip](https://blip.net), the app for sending files of
 | --- | --- |
 | Left click | Open the panel |
 | Right click | Open the Blip window |
-| Middle click | Open the folder of your latest received file |
+| Middle click | Open the folder Blip saves received files to |
 | Drop files | Queue them to send |
 
 ## Requirements
