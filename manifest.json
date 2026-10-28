@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "id": "tarax.blip",
+  "name": "Blip",
+  "version": "1.2.0",
+  "author": "tarax28",
+  "license": "MIT",
+  "description": "Blip in the Omarchy bar: drop files to send them to your devices or anyone, follow and answer transfers, browse received files, and sign in, all without Blip's own windows.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Blip",
+    "description": "Drop files to send with Blip; follow transfers and received files.",
+    "category": "Files",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "hideBlipWindows": true,
+      "refreshIntervalSec": 5,
+      "historyLimit": 10,
+      "recentPeople": 5
+    },
+    "schema": [
+      {
+        "key": "hideBlipWindows",
+        "type": "boolean",
+        "label": "Hide Blip's transfer windows (open the app from search or by right-clicking the icon)",
+        "defaultValue": true
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Check for new files every (seconds)",
+        "min": 2,
+        "max": 600,
+        "step": 1,
+        "defaultValue": 5
+      },
+      {
+        "key": "historyLimit",
+        "type": "integer",
+        "label": "Received files to list",
+        "min": 5,
+        "max": 200,
+        "step": 5,
+        "defaultValue": 10
+      },
+      {
+        "key": "recentPeople",
+        "type": "integer",
+        "label": "Recent people in the To list",
+        "min": 0,
+        "max": 20,
+        "step": 1,
+        "defaultValue": 5
+      }
+    ]
+  }
+}
