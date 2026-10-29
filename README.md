@@ -4,6 +4,8 @@ An Omarchy bar plugin for [Blip](https://blip.net), the app for sending files of
 
 > Unofficial. This plugin is not made by or affiliated with Blip. It drives the Blip app that you install on your machine.
 
+![The Blip window, its settings page, and the bar panel with two files queued to send](preview.png)
+
 ## What it does
 
 - **Send by drag and drop.** Drop files on the bar mark or into the panel, then pick one of your devices or a person. You can queue several files before choosing.
