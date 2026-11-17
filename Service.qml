@@ -49,6 +49,7 @@ Item {
   }
 
   readonly property bool hideWindows: setting("hideBlipWindows", true) !== false
+  readonly property bool notificationsOn: setting("notifications", true) !== false
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 5, 2, 600)
   readonly property int historyLimit: intSetting("historyLimit", 10, 5, 200)
   readonly property int recentPeople: intSetting("recentPeople", 5, 0, 20)
@@ -67,6 +68,12 @@ Item {
   readonly property string specialName: "blip"
   // Bumped whenever the hide rule's match changes.
   readonly property int hideRuleVersion: 2
+
+  // Transfers already announced: offers waiting for an answer, and received
+  // transfers. Null until the first report, which only seeds them, so old
+  // history never pops up when the shell starts.
+  property var _announcedOffers: null
+  property var _announcedReceived: null
 
   property var _pendingPeer: null
   // Windows Blip opens because the plugin itself just handed it a send stay
@@ -139,6 +146,89 @@ Item {
       }
     }
     if (seenTime < 0) seenTime = newestTime
+    announce()
+  }
+
+  // With Blip's own windows hidden, these notifications are how you learn
+  // that something is coming in.
+  function announce() {
+    if (!signedIn) return
+    var first = _announcedOffers === null
+    var offers = {}
+    for (var i = 0; i < transfers.length; i++) {
+      var t = transfers[i]
+      if (!t.asking || !t.id) continue
+      offers[t.id] = true
+      // An offer still waiting at startup is announced too: it needs an answer.
+      if (!(_announcedOffers && _announcedOffers[t.id]) && notificationsOn) notifyOffer(t)
+    }
+    _announcedOffers = offers
+
+    var groups = []
+    var byId = {}
+    var seen = _announcedReceived || {}
+    var next = {}
+    for (var k in seen) next[k] = true
+    for (var j = 0; j < received.length; j++) {
+      var f = received[j]
+      var id = String(f.transfer || "")
+      if (id === "" || f.live) continue
+      if (seen[id]) continue
+      next[id] = true
+      if (first) continue
+      if (!byId[id]) {
+        byId[id] = { from: f.from, files: [] }
+        groups.push(byId[id])
+      }
+      byId[id].files.push(f)
+    }
+    _announcedReceived = next
+    if (!notificationsOn) return
+    for (var g = 0; g < groups.length; g++) notifyReceived(groups[g])
+  }
+
+  // Notification bodies are markup; names come from other people.
+  function plain(value) {
+    return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  }
+
+  // notify-send waits for a click and prints the chosen action, which the
+  // little shell script turns into the matching step. Everything from Blip
+  // travels as arguments, never as part of the script.
+  function notifyOffer(transfer) {
+    if (!/^[0-9a-z-]+$/i.test(String(transfer.id))) return
+    var size = Model.formatBytes(transfer.total)
+    Quickshell.execDetached(["sh", "-c",
+      "c=$(notify-send --app-name=Blip --icon=net.blip.Blip-offline-symbolic --urgency=critical --wait "
+      + "-A accept=Accept -A decline=Decline -A default=Open \"$1\" \"$2\") || exit 0; "
+      + "case \"$c\" in accept) python3 -I \"$3\" accept \"$4\" ;; decline) python3 -I \"$3\" decline \"$4\" ;; "
+      + "default) omarchy-shell tarax.blip open ;; esac",
+      "sh", String(transfer.peer || "Someone") + " wants to send you files",
+      plain(Model.transferTitle(transfer)) + (size !== "" ? " · " + size : ""),
+      helperPath, String(transfer.id)])
+  }
+
+  function notifyReceived(group) {
+    var files = group.files
+    var one = files.length === 1 ? files[0] : null
+    var title = one ? Model.displayName(one) : files.length + " files"
+    var action = ""
+    var target = ""
+    if (one && one.link && /^https?:\/\//i.test(one.link)) {
+      action = "Open link"
+      target = one.link
+    } else if (one && one.exists !== false && !Model.isRisky(one.name || one.path)) {
+      action = "Open"
+      target = String(one.path)
+    }
+    var body = plain(title)
+    if (one && one.text) body += "\n" + plain(String(one.text).substring(0, 160))
+    Quickshell.execDetached(["sh", "-c",
+      "n='notify-send --app-name=Blip --icon=net.blip.Blip-offline-symbolic --wait'; "
+      + "if [ -n \"$3\" ]; then c=$($n -A \"open=$4\" -A default=Show \"$1\" \"$2\"); "
+      + "else c=$($n -A default=Show \"$1\" \"$2\"); fi || exit 0; "
+      + "case \"$c\" in open) xdg-open \"$3\" ;; default) omarchy-shell tarax.blip open ;; esac",
+      "sh", "Received from " + String(group.from || "someone"), body, target, action])
   }
 
   function markSeen() {

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "tarax.blip",
   "name": "Blip",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "author": "tarax28",
   "license": "MIT",
   "description": "Blip in the Omarchy bar: drop files to send them to your devices or anyone, follow and answer transfers, browse received files, and sign in, all without Blip's own windows.",
@@ -20,6 +20,7 @@
     "defaultSection": "right",
     "defaults": {
       "hideBlipWindows": true,
+      "notifications": true,
       "refreshIntervalSec": 5,
       "historyLimit": 10,
       "recentPeople": 5
@@ -29,6 +30,12 @@
         "key": "hideBlipWindows",
         "type": "boolean",
         "label": "Hide Blip's transfer windows (open the app from search or by right-clicking the icon)",
+        "defaultValue": true
+      },
+      {
+        "key": "notifications",
+        "type": "boolean",
+        "label": "Notify when someone wants to send you files, and when files arrive",
         "defaultValue": true
       },
       {

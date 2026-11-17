@@ -13,6 +13,7 @@ An Omarchy bar plugin for [Blip](https://blip.net), the app for sending files of
 - **Send to anyone.** Type a name or email in the **To** field and the plugin looks them up through Blip. If someone has more than one device, you can send to all of them or pick one. The list keeps only the people you've recently exchanged files with.
 - **Follow transfers.** Each transfer shows its progress, speed and a Stop button. A thin progress line also appears under the bar mark.
 - **Answer incoming files.** When someone offers you files, Accept or Decline them right in the panel.
+- **Notifications.** A notification with **Accept** and **Decline** appears when someone wants to send you files, and another when files arrive (from your own devices or anyone Blip accepts automatically), with **Open** or **Open link**. They use the Blip mark from the bar. Turn them off in the settings.
 - **See what came in.** The panel lists your most recent received files. Click one to open it, or show it in your file manager. Links shared from your phone show as links and open in your browser, short notes show their text, and both can be copied (`c`). Files that could run code when opened, such as `.desktop`, scripts or AppImages, are always shown in their folder instead of opened.
 - **An Omarchy window instead of Blip's.** Right-click the mark, or open Blip from the app launcher, to get a wide themed window with the same features plus settings.
 - **Settings in the same style.** The window's settings page covers Blip's own settings (name, device name, findable by email, auto-accept from your devices, save folder, speed limits, diagnostics, log out) and this plugin's settings.
@@ -30,7 +31,7 @@ An Omarchy bar plugin for [Blip](https://blip.net), the app for sending files of
 - Omarchy with the Quickshell-based Omarchy shell and Hyprland's Lua config (Omarchy Quattro).
 - **Blip for Linux**, from the AUR package [`blipnet`](https://aur.archlinux.org/packages/blipnet).
 - **zenity**, for the file and folder pickers.
-- `python3`, `busctl` and `wl-clipboard`, which ship with Omarchy.
+- `python3`, `busctl`, `wl-clipboard` and `notify-send`, which ship with Omarchy.
 
 You don't need to install Blip or zenity yourself. When they're missing, the panel shows an **Install Blip** button. It opens Omarchy's floating terminal and runs `omarchy-pkg-add zenity && omarchy-pkg-aur-add blipnet`, so you can watch the install and enter your password there. The plugin never installs anything without that click.
 
@@ -63,6 +64,7 @@ Open the Blip window (right-click the mark) and click the gear. The plugin setti
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | Hide Blip's own windows | on | Blip's windows go to a hidden workspace, and this plugin's window opens instead |
+| Notifications | on | Notify when someone wants to send you files, and when files arrive |
 | Recent people in the To list | 5 | How many people you've exchanged files with are listed |
 | Received files to list | 10 | How many received files the panel shows |
 | Check Blip every | 5 s | How often to re-read Blip's state while it isn't running |

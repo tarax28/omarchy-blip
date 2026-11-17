@@ -221,6 +221,17 @@ Item {
             onClicked: blip.setPlugin("hideBlipWindows", !blip.hideWindows)
           }
 
+          Toggle {
+            width: parent.width
+            label: "Notifications"
+            description: "When someone wants to send you files, and when files arrive."
+            checked: blip.notificationsOn
+            foreground: view.foreground
+            accent: view.accent
+            fontFamily: view.fontFamily
+            onClicked: blip.setPlugin("notifications", !blip.notificationsOn)
+          }
+
           NumberField {
             label: "Recent people in the To list"
             value: blip.recentPeople

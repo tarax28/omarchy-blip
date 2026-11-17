@@ -605,6 +605,9 @@ def parse(buf, limit=30):
         where = os.path.join(base, name)
       device_name = next((d["name"] for d in devices if d["peer"] == sender_user + ":" + sender_device), "")
       received.append({
+        "transfer": text(first(transfer, 100, b"")),
+        # Still arriving (or waiting to be accepted): not received yet.
+        "live": first(transfer, 800, 0) in LIVE_STATUS,
         "name": name,
         "path": where,
         "size": sizes.get(name, 0),
