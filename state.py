@@ -16,9 +16,11 @@ picks out the fields it knows, so anything unexpected is skipped, never fatal.
   state.py login profile <name>                finish sign-up with your name
   state.py cancel <transfer id>      stop a transfer
   state.py lookup <name or email>    find Blip users the way Blip's "To" picker does
+  state.py share [--clipboard]       turn text from stdin (or the clipboard) into a file to send
 """
 import json
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -27,9 +29,18 @@ import shutil
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 STATE = Path.home() / ".local/share/net.blip.Blip/state.dat"
 SOCKET = Path.home() / ".cache/net.blip.Blip/sock"
+SHARE_DIR = Path.home() / ".cache/tarax.blip/share"
+# Shared text stays on disk until Blip has surely sent it.
+SHARE_KEEP_SEC = 7 * 24 * 3600
+SHARE_MAX_BYTES = 1 << 20
+# Received .url and .txt files small enough to show inline.
+PREVIEW_MAX_BYTES = 64 * 1024
+PREVIEW_CHARS = 400
+URL_PATTERN = re.compile(r"^https?://\S+$", re.IGNORECASE)
 
 # frontend.Transfer.Status values that still need the user's attention.
 RECENT_PEOPLE = 5
@@ -390,6 +401,83 @@ def lookup(query, timeout=10):
       pass
 
 
+def safe_name(value, fallback, limit=60):
+  """A file name from free text: one line, no slashes or control characters."""
+  name = re.sub(r"[\x00-\x1f\x7f/\\]+", " ", value)
+  name = re.sub(r"\s+", " ", name).strip().lstrip(".").strip()
+  if len(name) > limit:
+    name = name[:limit].rstrip() + "…"
+  return name or fallback
+
+
+def share(text):
+  """Write text to a file Blip can send and print its path.
+
+  A lone http(s) link becomes an Internet Shortcut (.url), the same file
+  Blip's phone apps send and open as a link; anything else becomes a .txt.
+  """
+  text = text.replace("\r\n", "\n").strip("\n")
+  if not text.strip():
+    raise ValueError("there is no text to send")
+  if len(text.encode("utf-8")) > SHARE_MAX_BYTES:
+    raise ValueError("the text is too long to send as a note (over 1 MB)")
+  SHARE_DIR.mkdir(parents=True, exist_ok=True)
+  now = time.time()
+  for old in SHARE_DIR.iterdir():
+    try:
+      if now - old.stat().st_mtime > SHARE_KEEP_SEC:
+        shutil.rmtree(old) if old.is_dir() else old.unlink()
+    except OSError:
+      pass
+  folder = SHARE_DIR / uuid.uuid4().hex
+  folder.mkdir(mode=0o700)
+  single = text.strip()
+  if URL_PATTERN.match(single):
+    host = urlsplit(single).hostname or "the web"
+    path = folder / (safe_name("Link from " + host, "Link") + ".url")
+    path.write_text("[InternetShortcut]\r\nURL=" + single + "\r\n", encoding="utf-8")
+  else:
+    first_line = next((line for line in text.split("\n") if line.strip()), "")
+    path = folder / (safe_name(first_line, "Note", 40) + ".txt")
+    path.write_text(text + "\n", encoding="utf-8")
+  return str(path)
+
+
+def clipboard_text():
+  try:
+    result = subprocess.run(["wl-paste", "--no-newline", "--type", "text"],
+                            capture_output=True, timeout=5)
+  except (OSError, subprocess.SubprocessError):
+    raise ValueError("could not read the clipboard")
+  if result.returncode != 0:
+    raise ValueError("the clipboard has no text")
+  return result.stdout.decode("utf-8", "replace")
+
+
+def preview(path, name):
+  """The link inside a received .url, or the start of a short .txt."""
+  ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+  if ext not in ("url", "txt"):
+    return {}
+  try:
+    if os.path.getsize(path) > PREVIEW_MAX_BYTES:
+      return {}
+    with open(path, "rb") as handle:
+      body = handle.read(PREVIEW_MAX_BYTES).decode("utf-8", "replace")
+  except OSError:
+    return {}
+  if ext == "url":
+    for line in body.splitlines():
+      key, _, value = line.partition("=")
+      value = value.strip()
+      # Only web links: an Internet Shortcut can also point at a local program.
+      if key.strip().lower() == "url" and URL_PATTERN.match(value):
+        return {"link": value}
+    return {}
+  text = body.strip()
+  return {"text": text[:PREVIEW_CHARS], "textComplete": len(text) <= PREVIEW_CHARS} if text else {}
+
+
 def running():
   try:
     return subprocess.run(["pgrep", "-x", "blip"], capture_output=True, timeout=2).returncode == 0
@@ -397,7 +485,7 @@ def running():
     return False
 
 
-def parse(buf):
+def parse(buf, limit=30):
   me_user = me_device = ""
   for f, v in fields(buf):
     if f == 201:
@@ -442,10 +530,11 @@ def parse(buf):
       if transfer:
         transfers.append(transfer)
 
-  # Only people you have sent to, most recent first; everyone else is a search away.
+  # Only people you have exchanged files with (either way), most recent first.
+  # Everyone else Blip remembers is an old search result, a search away again.
   sent = {}
   for transfer in transfers:
-    if first(transfer, 700, 0) != 2:
+    if first(transfer, 700, 0) not in (1, 2):
       continue
     user = text(first(first(transfer, 200, b""), 1, b""))
     when = seconds(first(transfer, 1300))
@@ -525,6 +614,10 @@ def parse(buf):
       })
 
   received.sort(key=lambda r: r["time"], reverse=True)
+  received = received[:limit]
+  for item in received:
+    if item["exists"]:
+      item.update(preview(item["path"], item["name"]))
   devices.sort(key=lambda d: (not d["mine"], -d["lastSeen"], d["name"].lower()))
   contacts.sort(key=lambda c: c["name"].lower())
   return devices, contacts, live, received
@@ -537,7 +630,7 @@ def report(buf, limit, is_running):
   if buf is None:
     return out
   try:
-    devices, contacts, live, received = parse(buf)
+    devices, contacts, live, received = parse(buf, limit)
   except (ValueError, IndexError) as err:
     out.update(ok=False, error="Could not read Blip state: " + str(err))
     return out
@@ -609,6 +702,15 @@ def main():
       change(args[1], " ".join(args[2:]))
     except (OSError, EOFError, RuntimeError, IndexError, ValueError) as err:
       print("Could not change the setting: " + str(err), file=sys.stderr)
+      sys.exit(1)
+    return
+  if args and args[0] == "share":
+    # Text arrives on stdin (or from the clipboard), never on the command line.
+    try:
+      text = clipboard_text() if "--clipboard" in args[1:] else sys.stdin.read()
+      print(share(text))
+    except (OSError, ValueError) as err:
+      print("Could not prepare the text: " + str(err), file=sys.stderr)
       sys.exit(1)
     return
   if args and args[0] == "lookup":

@@ -42,6 +42,31 @@ Item {
 
   readonly property alias searchField: searchField
   readonly property alias keyCatcher: keyCatcher
+  // The "Text or link" field: always there in the wide window, opened with t in the panel.
+  property bool composing: false
+  readonly property bool showComposer: view.wide || view.composing
+
+  function compose() {
+    view.composing = true
+    Qt.callLater(function() { noteField.forceActiveFocus() })
+  }
+
+  function sendNote() {
+    var value = noteField.text
+    if (value.trim() === "") return
+    blip.shareText(value)
+    noteField.text = ""
+    view.composing = false
+  }
+
+  // A drop that carries text or a link instead of files.
+  function takeTextDrop(event) {
+    var text = Model.droppedText(event)
+    if (text.trim() === "") return false
+    event.accept(Qt.CopyAction)
+    blip.shareText(text)
+    return true
+  }
 
   function heroMeta() {
     if (!blip.installed) return "Blip is not installed"
@@ -76,6 +101,7 @@ Item {
   // closes the panel, and that drop should add to the queue, not replace it.
   function reset() {
     view.query = ""
+    view.composing = false
     view.cursorActive = false
     flick.contentY = 0
   }
@@ -131,7 +157,12 @@ Item {
   function activateCursor() {
     if (!view.cursorActive) return
     if (view.focusSection === "devices") view.sendTo(view.targets[view.cursorIndex])
-    else blip.openFile(blip.received[view.cursorIndex])
+    else view.openReceived(blip.received[view.cursorIndex])
+  }
+
+  function openReceived(file) {
+    if (file && file.link) blip.openLink(file.link)
+    else blip.openFile(file)
   }
 
   function setCursor(section, index) {
@@ -162,7 +193,7 @@ Item {
   PanelKeyCatcher {
     id: keyCatcher
     anchors.fill: parent
-    blocked: searchField.activeFocus
+    blocked: searchField.activeFocus || noteField.activeFocus
     onMoveRequested: function(dx, dy) { view.moveCursor(dy) }
     onActivateRequested: view.activateCursor()
     onCloseRequested: {
@@ -175,16 +206,22 @@ Item {
       else if (t === "r" || t === "R") blip.refresh()
       else if (t === "w" || t === "W") view.heroActionClicked()
       else if (t === "o" || t === "O") blip.openDownloads()
+      else if (t === "p" || t === "P") blip.shareClipboard()
+      else if (t === "t" || t === "T") view.compose()
+      else if ((t === "c" || t === "C") && view.cursorActive && view.focusSection === "files") blip.copyFile(blip.received[view.cursorIndex])
       else if ((t === "f" || t === "F") && view.cursorActive && view.focusSection === "files") blip.revealFile(blip.received[view.cursorIndex])
     }
 
     // Dropping anywhere on the view queues the files, same as the bar mark.
     DropArea {
       anchors.fill: parent
-      keys: ["text/uri-list"]
+      keys: ["text/uri-list", "text/plain"]
       onDropped: function(event) {
         var paths = Model.pathsFromUris(event.getDataAsString("text/uri-list"))
-        if (paths.length === 0) return
+        if (paths.length === 0) {
+          view.takeTextDrop(event)
+          return
+        }
         event.accept(Qt.CopyAction)
         view.takeDrop(paths)
       }
@@ -227,12 +264,22 @@ Item {
               }
             }
             trailingControl: Component {
-              PanelActionButton {
-                iconText: view.heroActionIcon
-                tooltipText: view.heroActionTip
-                foreground: hero.foreground
-                fontFamily: hero.fontFamily
-                onClicked: view.heroActionClicked()
+              Row {
+                spacing: Style.space(2)
+                PanelActionButton {
+                  iconText: "󰅇"
+                  tooltipText: "Send the text or link you copied (p)"
+                  foreground: hero.foreground
+                  fontFamily: hero.fontFamily
+                  onClicked: blip.shareClipboard()
+                }
+                PanelActionButton {
+                  iconText: view.heroActionIcon
+                  tooltipText: view.heroActionTip
+                  foreground: hero.foreground
+                  fontFamily: hero.fontFamily
+                  onClicked: view.heroActionClicked()
+                }
               }
             }
           }
@@ -251,6 +298,28 @@ Item {
           PendingCard {
             visible: view.hasPending
             width: parent.width
+          }
+
+          TextField {
+            id: noteField
+            visible: view.showComposer
+            width: parent.width
+            placeholderText: "Text or link to send, then Enter"
+            font.family: view.fontFamily
+            font.pixelSize: Style.font.body
+            foreground: view.foreground
+            horizontalPadding: Style.spacing.controlGap
+            verticalPadding: Style.spacing.controlPaddingY
+            onAccepted: view.sendNote()
+            Keys.onTabPressed: searchField.forceActiveFocus()
+            Keys.onEscapePressed: {
+              if (text !== "") text = ""
+              else if (view.wide) keyCatcher.forceActiveFocus()
+              else {
+                view.composing = false
+                keyCatcher.forceActiveFocus()
+              }
+            }
           }
 
           Loader {
@@ -303,7 +372,7 @@ Item {
               textFormat: Text.PlainText
               visible: view.wide && !view.hasPending
               width: parent.width
-              text: "Drop files here, or pick someone to choose files."
+              text: "Drop files, links or text here, or pick someone to choose files."
               color: view.dim
               font.family: view.fontFamily
               font.pixelSize: Style.font.caption
@@ -707,13 +776,16 @@ Item {
     // A file dropped straight on a device skips the queue and goes now.
     DropArea {
       anchors.fill: parent
-      keys: ["text/uri-list"]
+      keys: ["text/uri-list", "text/plain"]
       onEntered: deviceRow.dropping = true
       onExited: deviceRow.dropping = false
       onDropped: function(event) {
         deviceRow.dropping = false
         var paths = Model.pathsFromUris(event.getDataAsString("text/uri-list"))
-        if (paths.length === 0) return
+        if (paths.length === 0) {
+          view.takeTextDrop(event)
+          return
+        }
         event.accept(Qt.CopyAction)
         view.addPaths(paths)
         view.sendTo(deviceRow.entry)
@@ -783,6 +855,7 @@ Item {
     property var file: null
     property int rowIndex: 0
     readonly property string fileName: file ? String(file.name || "Untitled") : "Untitled"
+    readonly property bool copyable: !!(file && file.exists !== false && (file.link || file.text !== undefined))
     readonly property bool isNew: file && blip.seenTime >= 0 && Number(file.time || 0) > blip.seenTime
 
     hasCursor: view.cursorActive && view.focusSection === "files" && view.cursorIndex === rowIndex
@@ -795,7 +868,7 @@ Item {
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
       onEntered: view.setCursor("files", fileRow.rowIndex)
-      onClicked: blip.openFile(fileRow.file)
+      onClicked: view.openReceived(fileRow.file)
     }
 
     RowLayout {
@@ -825,7 +898,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           Layout.fillWidth: true
-          text: fileRow.fileName
+          text: Model.displayName(fileRow.file)
           color: view.foreground
           font.family: view.fontFamily
           font.pixelSize: Style.font.body
@@ -841,6 +914,30 @@ Item {
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
         }
+
+        // A short note shows what it says.
+        Text {
+          textFormat: Text.PlainText
+          visible: !!(fileRow.file && fileRow.file.text)
+          Layout.fillWidth: true
+          text: fileRow.file && fileRow.file.text ? String(fileRow.file.text) : ""
+          color: view.foreground
+          font.family: view.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.Wrap
+          maximumLineCount: 3
+          elide: Text.ElideRight
+        }
+      }
+
+      PanelActionButton {
+        visible: fileRow.hasCursor && fileRow.copyable
+        iconText: "󰆏"
+        tooltipText: fileRow.file && fileRow.file.link ? "Copy link (c)" : "Copy text (c)"
+        foreground: view.foreground
+        fontFamily: view.fontFamily
+        Layout.alignment: Qt.AlignVCenter
+        onClicked: blip.copyFile(fileRow.file)
       }
 
       PanelActionButton {

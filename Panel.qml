@@ -44,7 +44,7 @@ Panel {
       lines.push((t.outgoing ? "↑ " : "↓ ") + Model.transferTitle(t) + pct)
     }
     if (service.unseenCount > 0) lines.push(service.unseenCount + (service.unseenCount === 1 ? " new file" : " new files"))
-    lines.push("Drop files here to send")
+    lines.push("Drop files, links or text here to send")
     lines.push("Left: open · Right: Blip window · Middle: downloads")
     return lines.join("\n")
   }
@@ -93,6 +93,8 @@ Panel {
     settings: root.settings
     bar: root.bar
     onAppRequested: appWindow.show()
+    // Text and links come back as a file to queue, like a drop.
+    onTextReady: function(path) { root.takeDrop([path]) }
   }
 
   BlipWindow {
@@ -126,6 +128,9 @@ Panel {
       view.setCursor("devices", 0)
     }
     function devices(): string { return service.devices.map(function(d) { return d.name }).join("\n") }
+    // omarchy-shell tarax.blip text "https://example.com"  ·  queue text or a link to send
+    function text(value: string): void { service.shareText(value) }
+    function clipboard(): void { service.shareClipboard() }
   }
 
   BarIconButton {
@@ -180,13 +185,20 @@ Panel {
 
     DropArea {
       anchors.fill: parent
-      keys: ["text/uri-list"]
+      keys: ["text/uri-list", "text/plain"]
       onEntered: root.dragOver = true
       onExited: root.dragOver = false
       onDropped: function(event) {
         root.dragOver = false
         var paths = Model.pathsFromUris(event.getDataAsString("text/uri-list"))
-        if (paths.length === 0) return
+        if (paths.length === 0) {
+          // A link or text dragged from a browser is sent as a note.
+          var text = Model.droppedText(event)
+          if (text.trim() === "") return
+          event.accept(Qt.CopyAction)
+          service.shareText(text)
+          return
+        }
         // Copy, never move: Blip reads the files where they are.
         event.accept(Qt.CopyAction)
         root.takeDrop(paths)

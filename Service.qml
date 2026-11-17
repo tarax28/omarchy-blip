@@ -65,6 +65,8 @@ Item {
     return t === windowTitle || / [–-] Blip$/.test(t)
   }
   readonly property string specialName: "blip"
+  // Bumped whenever the hide rule's match changes.
+  readonly property int hideRuleVersion: 2
 
   property var _pendingPeer: null
   // Windows Blip opens because the plugin itself just handed it a send stay
@@ -153,6 +155,54 @@ Item {
     beQuiet()
     Quickshell.execDetached(command)
     flash("Sending " + Model.pendingTitle(paths) + " to " + device.name)
+  }
+
+  // Blip only carries files, so text becomes a small file first: a link turns
+  // into the .url shortcut Blip's phone apps open as a link, other text into a
+  // .txt. The helper reads the text on stdin and prints the file's path.
+  signal textReady(string path)
+
+  function shareText(text) {
+    if (shareProcess.running) return
+    var value = String(text || "")
+    if (value.trim() === "") {
+      flash("There is no text to send")
+      return
+    }
+    shareProcess.input = value
+    shareProcess.command = ["python3", "-I", helperPath, "share"]
+    shareProcess.running = true
+  }
+
+  function shareClipboard() {
+    if (shareProcess.running) return
+    shareProcess.input = ""
+    shareProcess.command = ["python3", "-I", helperPath, "share", "--clipboard"]
+    shareProcess.running = true
+  }
+
+  function copyText(value) {
+    Quickshell.clipboardText = String(value || "")
+    flash("Copied")
+  }
+
+  // A received .url opens its web link; state.py only reports http(s) ones.
+  function openLink(url) {
+    var value = String(url || "")
+    if (!/^https?:\/\//i.test(value)) return
+    Quickshell.execDetached(["xdg-open", value])
+  }
+
+  function copyFile(file) {
+    if (!file || !file.path) return
+    if (file.link) {
+      copyText(file.link)
+    } else if (file.text !== undefined && file.textComplete) {
+      copyText(file.text)
+    } else {
+      Quickshell.execDetached(["sh", "-c", "wl-copy < \"$1\"", "sh", String(file.path)])
+      flash("Copied")
+    }
   }
 
   function stop(transfer) {
@@ -473,9 +523,16 @@ Item {
   // old instance is torn down after the new one has claimed the rule.
   function applyHideRule(forceNew) {
     var lua = forceNew ? "_G.tarax_blip_rule = nil; " : ""
+    // A rule from an older version of the plugin (with an older title
+    // pattern) is switched off and replaced without waiting for a reload.
+    lua += "if _G.tarax_blip_rule and _G.tarax_blip_rule_version ~= " + hideRuleVersion + " then "
+         + "_G.tarax_blip_rule:set_enabled(false); _G.tarax_blip_rule = nil end; "
     lua += "_G.tarax_blip_owner = \"" + ownerToken + "\"; "
-         + "_G.tarax_blip_rule = _G.tarax_blip_rule or hl.window_rule({ name = \"tarax-blip-hide\", "
-         + "match = { class = \"^" + windowClass + "$\", title = \"(^| . )Blip$\" }, "
+         + "if not _G.tarax_blip_rule then _G.tarax_blip_rule_version = " + hideRuleVersion + " end; "
+         + "_G.tarax_blip_rule = _G.tarax_blip_rule or hl.window_rule({ name = \"tarax-blip-hide-v" + hideRuleVersion + "\", "
+         // Hyprland matches a rule's title against the whole title, so the
+         // pattern spells it all out: "Blip", or "… – Sending to Sam – Blip".
+         + "match = { class = \"^" + windowClass + "$\", title = \"(.* . )?Blip\" }, "
          + "workspace = \"special:" + specialName + " silent\", no_initial_focus = true }); "
          + "_G.tarax_blip_rule:set_enabled(" + (hideWindows ? "true" : "false") + "); "
          // The plugin's own window floats like Omarchy's other utilities.
@@ -607,6 +664,26 @@ Item {
       var paths = String(pickStdout.text || "").split("\n").filter(function(p) { return p.trim() !== "" })
       if (device && device.handoff) root.handoff(paths, device.query)
       else root.send(device, paths)
+    }
+  }
+
+  Process {
+    id: shareProcess
+    property string input: ""
+    command: []
+    stdinEnabled: true
+    stdout: StdioCollector { id: shareStdout; waitForEnd: true }
+    stderr: StdioCollector { id: shareStderr; waitForEnd: true }
+    onStarted: {
+      if (input !== "") write(input)
+      input = ""
+      stdinEnabled = false
+    }
+    onExited: function(exitCode) {
+      stdinEnabled = true
+      var path = String(shareStdout.text || "").trim()
+      if (exitCode === 0 && path !== "") root.textReady(path)
+      else root.flash(String(shareStderr.text || "").trim().replace(/^Could not prepare the text: /, "") || "Could not prepare the text")
     }
   }
 

@@ -77,6 +77,8 @@ function fileExtension(name) {
 
 function fileGlyph(name) {
   var ext = fileExtension(name)
+  if (ext === "url") return "󰌷"
+  if (ext === "txt") return "󰦨"
   if (IMAGE_EXTENSIONS[ext]) return "󰋩"
   if (VIDEO_EXTENSIONS[ext]) return "󰈫"
   if (DOCUMENT_EXTENSIONS[ext]) return "󰈙"
@@ -116,7 +118,8 @@ function relativeTime(timestampSec, nowMs) {
 function fileMeta(file, nowMs) {
   if (!file) return ""
   var parts = [relativeTime(file.time, nowMs), "from " + (file.from || "Unknown")]
-  var size = formatBytes(file.size)
+  var size = file.link ? "" : formatBytes(file.size)
+  if (file.link) parts.push(linkHost(file.link))
   if (size !== "") parts.push(size)
   if (file.exists === false) parts.push("moved or deleted")
   return parts.join(" · ")
@@ -189,7 +192,7 @@ function baseName(path) {
 
 function pendingTitle(paths) {
   if (!paths || paths.length === 0) return ""
-  if (paths.length === 1) return baseName(paths[0])
+  if (paths.length === 1) return baseName(paths[0]).replace(/\.url$/i, "")
   return paths.length + " files"
 }
 
@@ -271,4 +274,35 @@ function personEntry(p) {
   else if (count === 1) meta.push("1 device")
   return { type: "person", peer: p.peer, name: p.name || p.email, glyph: "󰀄",
            meta: meta.filter(function(x) { return x }).join(" · "), target: p }
+}
+
+// A received link reads as its title; the .url is only how Blip carries it.
+function displayName(file) {
+  var name = String(file && file.name || "Untitled")
+  if (file && file.link && /\.url$/i.test(name)) return name.substring(0, name.length - 4)
+  return name
+}
+
+function linkHost(url) {
+  var match = /^[a-z]+:\/\/([^\/?#]+)/i.exec(String(url || ""))
+  return match ? match[1].replace(/^www\./, "") : ""
+}
+
+// Web links in a drag (a link or tab dragged out of a browser).
+function linksFromUris(raw) {
+  var out = []
+  var lines = String(raw || "").split(/\r?\n/)
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim()
+    if (/^https?:\/\/\S+$/i.test(line)) out.push(line)
+  }
+  return out
+}
+
+// What a drop or paste of text should send: the links in it, else the text.
+function droppedText(event) {
+  if (!event) return ""
+  var links = linksFromUris(event.getDataAsString("text/uri-list"))
+  if (links.length > 0) return links.join("\n")
+  return String(event.getDataAsString("text/plain") || event.text || "")
 }
